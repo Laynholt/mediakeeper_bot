@@ -1,0 +1,8 @@
+services:
+  bot:
+    build: .
+    env_file:
+      - .env
+    volumes:
+      - ./stuff/media:/app/stuff/media
+      - ./data:/app/data
