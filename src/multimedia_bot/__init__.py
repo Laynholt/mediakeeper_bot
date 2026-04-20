@@ -1,0 +1,2 @@
+"""Multimedia bot package."""
+
