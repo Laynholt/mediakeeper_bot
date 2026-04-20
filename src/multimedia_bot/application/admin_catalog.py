@@ -8,7 +8,7 @@ from typing import Literal
 from uuid import uuid4
 
 from aiogram import Bot
-from aiogram.types import Audio, Message, PhotoSize, Video
+from aiogram.types import Audio, Message, PhotoSize, Video, Voice
 
 from multimedia_bot.application.file_storage import delete_local_file
 from multimedia_bot.application.ingestion import build_search_text, IngestionService
@@ -140,7 +140,7 @@ class AdminCatalogService:
                         "caption": item.caption,
                         "tags": item.tags,
                         "performer": getattr(message.audio, "performer", None) or item.performer,
-                        "duration": getattr(message.audio or message.video, "duration", None) or item.duration,
+                        "duration": getattr(message.audio or message.video or message.voice, "duration", None) or item.duration,
                         "width": inferred["width"],
                         "height": inferred["height"],
                         "mime_type": inferred["mime_type"],
@@ -311,7 +311,7 @@ class AdminCatalogService:
             return
         raise ValueError("Манифест содержит путь к файлу вне каталога импорта или MEDIA_ROOT.")
 
-    def _extract_media(self, message: Message) -> tuple[MediaType, Audio | Video | PhotoSize, str]:
+    def _extract_media(self, message: Message) -> tuple[MediaType, Audio | Video | Voice | PhotoSize, str]:
         if message.audio:
             file_name = message.audio.file_name or f"{message.audio.file_unique_id}.bin"
             return MediaType.AUDIO, message.audio, file_name
@@ -321,6 +321,9 @@ class AdminCatalogService:
         if message.video:
             file_name = message.video.file_name or f"{message.video.file_unique_id}.mp4"
             return MediaType.VIDEO, message.video, file_name
+        if message.voice:
+            file_name = f"{message.voice.file_unique_id}.ogg"
+            return MediaType.VOICE, message.voice, file_name
         raise ValueError("Неподдерживаемый тип медиа-сообщения.")
 
 

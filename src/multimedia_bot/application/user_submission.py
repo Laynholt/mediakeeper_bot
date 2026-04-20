@@ -4,7 +4,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from aiogram import Bot
-from aiogram.types import Audio, FSInputFile, InlineKeyboardMarkup, Message, PhotoSize, User, Video
+from aiogram.types import Audio, FSInputFile, InlineKeyboardMarkup, Message, PhotoSize, User, Video, Voice
 
 from multimedia_bot.application.file_storage import delete_local_file
 from multimedia_bot.application.ingestion import IngestionService
@@ -65,7 +65,7 @@ class UserSubmissionService:
                 content=None,
                 tags=caption_data["tags"],
                 performer=getattr(message.audio, "performer", None),
-                duration=getattr(message.audio or message.video, "duration", None),
+                duration=getattr(message.audio or message.video or message.voice, "duration", None),
                 width=inferred["width"],
                 height=inferred["height"],
                 mime_type=inferred["mime_type"],
@@ -352,6 +352,14 @@ class UserSubmissionService:
                 caption=caption,
                 reply_markup=reply_markup,
             )
+        if submission.media_type is MediaType.VOICE:
+            return await self._bot.send_voice(
+                chat_id=self._admin_user_id,
+                voice=media,
+                caption=caption,
+                duration=submission.duration,
+                reply_markup=reply_markup,
+            )
         return await self._bot.send_video(
             chat_id=self._admin_user_id,
             video=media,
@@ -396,7 +404,7 @@ class UserSubmissionService:
         if not self.is_admin(user_id):
             raise PermissionError("Это действие доступно только администраторам.")
 
-    def _extract_media(self, message: Message) -> tuple[MediaType, Audio | Video | PhotoSize, str]:
+    def _extract_media(self, message: Message) -> tuple[MediaType, Audio | Video | Voice | PhotoSize, str]:
         if message.audio:
             file_name = message.audio.file_name or f"{message.audio.file_unique_id}.bin"
             return MediaType.AUDIO, message.audio, file_name
@@ -406,6 +414,9 @@ class UserSubmissionService:
         if message.video:
             file_name = message.video.file_name or f"{message.video.file_unique_id}.mp4"
             return MediaType.VIDEO, message.video, file_name
+        if message.voice:
+            file_name = f"{message.voice.file_unique_id}.ogg"
+            return MediaType.VOICE, message.voice, file_name
         raise ValueError("Неподдерживаемый тип медиа-сообщения.")
 
 

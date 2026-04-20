@@ -6,6 +6,7 @@ PREFIX_TO_CATEGORY = {
     "audio": QueryCategory.AUDIO,
     "image": QueryCategory.IMAGE,
     "video": QueryCategory.VIDEO,
+    "voice": QueryCategory.VOICE,
     "text": QueryCategory.TEXT,
 }
 

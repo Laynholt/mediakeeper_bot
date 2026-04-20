@@ -3,6 +3,7 @@ from aiogram.types import (
     InlineQueryResultCachedAudio,
     InlineQueryResultCachedPhoto,
     InlineQueryResultCachedVideo,
+    InlineQueryResultCachedVoice,
 )
 
 from multimedia_bot.application.result_mapper import map_media_item_to_inline_result
@@ -25,6 +26,12 @@ def test_map_video_result() -> None:
     item = MediaItem(id=3, media_type=MediaType.VIDEO, title="Intro", telegram_file_id="video-file")
     result = map_media_item_to_inline_result(item)
     assert isinstance(result, InlineQueryResultCachedVideo)
+
+
+def test_map_voice_result() -> None:
+    item = MediaItem(id=11, media_type=MediaType.VOICE, title="Quote", telegram_file_id="voice-file")
+    result = map_media_item_to_inline_result(item)
+    assert isinstance(result, InlineQueryResultCachedVoice)
 
 
 def test_map_unicode_symbolic_title_result() -> None:

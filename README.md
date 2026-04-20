@@ -4,7 +4,7 @@ Telegram inline bot on `aiogram 3` with cached media delivery via Telegram `file
 
 ## Features
 
-- Inline search with `audio`, `image`, `video`, `text`, or free-text queries.
+- Inline search with `audio`, `image`, `video`, `voice`, `text`, or free-text queries.
 - Empty inline query returns helper hints plus popular media.
 - SQLite catalog with tags, analytics, and usage counters.
 - CLI import from JSON manifest.
@@ -48,6 +48,7 @@ uv run python -m multimedia_bot
 - `@botname audio rain`
 - `@botname image sunset`
 - `@botname video intro`
+- `@botname voice quote`
 - `@botname text greeting`
 - `@botname rain ambience`
 
@@ -98,6 +99,7 @@ Then the admin can send media or plain text to the bot in a private chat:
 - audio message -> saved to `stuff/media/audio/`
 - photo -> saved to `stuff/media/image/`
 - video -> saved to `stuff/media/video/`
+- voice message -> saved to `stuff/media/voice/`
 - text message -> saved as a text catalog item without a local file
 
 The bot will:
@@ -121,7 +123,7 @@ If caption is empty, the suggested title falls back to the file name. For text e
 
 Set `ADMIN_USER_ID` to the Telegram user ID of the admin.
 
-Then a regular user can send `audio`, `photo`, `video`, or plain text to the bot in a private chat. The bot will:
+Then a regular user can send `audio`, `photo`, `video`, `voice`, or plain text to the bot in a private chat. The bot will:
 
 1. Download the media locally when needed.
 2. Show inline buttons to use the suggested title, enter a custom title, or cancel.

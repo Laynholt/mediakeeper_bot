@@ -5,6 +5,7 @@ from aiogram.types import (
     InlineQueryResultCachedAudio,
     InlineQueryResultCachedPhoto,
     InlineQueryResultCachedVideo,
+    InlineQueryResultCachedVoice,
     InputTextMessageContent,
 )
 
@@ -53,6 +54,13 @@ def map_media_item_to_inline_result(item: MediaItem):
             video_file_id=item.telegram_file_id,
             title=item.title,
             description=item.description,
+            caption=item.caption,
+        )
+    if item.media_type is MediaType.VOICE:
+        return InlineQueryResultCachedVoice(
+            id=result_id,
+            voice_file_id=item.telegram_file_id,
+            title=item.title,
             caption=item.caption,
         )
     return None

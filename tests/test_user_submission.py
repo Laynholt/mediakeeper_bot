@@ -6,7 +6,7 @@ from aiogram.types import InlineKeyboardMarkup
 from multimedia_bot.application.ingestion import IngestionService
 from multimedia_bot.application.user_submission import UserSubmissionService
 from multimedia_bot.bot.keyboards import review_submission_keyboard
-from multimedia_bot.domain.models import SubmissionStatus
+from multimedia_bot.domain.models import MediaType, SubmissionStatus
 from multimedia_bot.infrastructure.repositories import (
     SqlAlchemyMediaRepository,
     SqlAlchemyUserSubmissionRepository,
@@ -34,6 +34,10 @@ class FakeBot:
     async def send_video(self, *, chat_id: int, video, caption: str, **kwargs):
         self.sent_media.append(("video", chat_id, caption))
         return SimpleNamespace(chat=SimpleNamespace(id=chat_id), message_id=503)
+
+    async def send_voice(self, *, chat_id: int, voice, caption: str, **kwargs):
+        self.sent_media.append(("voice", chat_id, caption))
+        return SimpleNamespace(chat=SimpleNamespace(id=chat_id), message_id=504)
 
     async def send_message(self, *, chat_id: int, text: str, **kwargs):
         self.sent_messages.append((chat_id, text))
@@ -73,6 +77,22 @@ def build_audio_message(*, user_id: int, username: str | None = None, caption: s
         ),
         photo=None,
         video=None,
+        voice=None,
+    )
+
+
+def build_voice_message(*, user_id: int, username: str | None = None, caption: str = ""):
+    return SimpleNamespace(
+        from_user=SimpleNamespace(id=user_id, username=username, full_name=f"user-{user_id}"),
+        caption=caption,
+        audio=None,
+        photo=None,
+        video=None,
+        voice=SimpleNamespace(
+            file_unique_id="voice123",
+            duration=4,
+            mime_type="audio/ogg",
+        ),
     )
 
 
@@ -163,6 +183,49 @@ async def test_admin_can_edit_user_submission_title_before_approval(session_fact
     assert approved_submission.status is SubmissionStatus.ACCEPTED
     assert approved_submission.title == "approved title"
     assert item.title == "approved title"
+    assert uploader.calls == 1
+
+
+async def test_voice_submission_can_be_reviewed_and_approved(session_factory, tmp_path: Path) -> None:
+    media_root = tmp_path / "media"
+    media_root.mkdir(parents=True)
+    media_repository = SqlAlchemyMediaRepository(session_factory)
+    submission_repository = SqlAlchemyUserSubmissionRepository(session_factory)
+    uploader = FakeUploader()
+    bot = FakeBot(review_chat_id=-100556)
+    ingestion_service = IngestionService(media_repository, uploader, media_root)
+    service = UserSubmissionService(
+        bot=bot,
+        ingestion_service=ingestion_service,
+        submission_repository=submission_repository,
+        media_repository=media_repository,
+        media_root=media_root,
+        admin_user_id=42,
+    )
+
+    message = build_voice_message(user_id=1002, username="speaker", caption="Voice Quote\n#voice")
+    submission = await service.create_submission_from_message(message)
+    assert submission.media_type is MediaType.VOICE
+    assert submission.path.endswith(".ogg")
+    assert submission.duration == 4
+
+    submission = await service.submit_with_suggested_title(
+        submission_id=submission.id,
+        user_id=1002,
+        submitter=message.from_user,
+        reply_markup=review_submission_keyboard(submission.id),
+    )
+    assert submission.status is SubmissionStatus.PENDING_REVIEW
+    assert submission.review_message_id == 504
+    assert bot.sent_media[0][0] == "voice"
+
+    approved_submission, item = await service.accept_submission(
+        submission_id=submission.id,
+        admin_user_id=42,
+    )
+    assert approved_submission.status is SubmissionStatus.ACCEPTED
+    assert item.media_type is MediaType.VOICE
+    assert item.title == "Voice Quote"
     assert uploader.calls == 1
 
 

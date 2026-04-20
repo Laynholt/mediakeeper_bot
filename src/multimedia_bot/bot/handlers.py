@@ -53,7 +53,7 @@ def create_router(container: AppContainer) -> Router:
     @router.message(
         F.chat.type == "private",
         StateFilter(AdminCatalogStates.waiting_for_replacement_file),
-        F.content_type.in_({"audio", "photo", "video"}),
+        F.content_type.in_({"audio", "photo", "video", "voice"}),
     )
     async def handle_admin_media_replacement(message: Message, state: FSMContext) -> None:
         if not container.admin_catalog_service.is_admin(message.from_user.id):
@@ -82,7 +82,7 @@ def create_router(container: AppContainer) -> Router:
             reply_markup=admin_media_keyboard(item.id, item.media_type),
         )
 
-    @router.message(F.chat.type == "private", StateFilter(None), F.content_type.in_({"audio", "photo", "video"}))
+    @router.message(F.chat.type == "private", StateFilter(None), F.content_type.in_({"audio", "photo", "video", "voice"}))
     async def handle_private_media(message: Message) -> None:
         if container.admin_ingestion_service.is_admin(message.from_user.id):
             draft = await container.admin_ingestion_service.create_draft_from_message(message)
@@ -622,6 +622,7 @@ def _build_start_text(*, is_admin: bool) -> str:
         "<code>@botname audio rain</code> - аудио\n"
         "<code>@botname image sunset</code> - изображение\n"
         "<code>@botname video intro</code> - видео\n"
+        "<code>@botname voice quote</code> - голосовое\n"
         "<code>@botname text greeting</code> - текст\n"
         "<code>@botname rain ambience</code> - поиск по всему каталогу"
     )

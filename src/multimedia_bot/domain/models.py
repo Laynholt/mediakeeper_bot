@@ -9,6 +9,7 @@ class MediaType(StrEnum):
     AUDIO = "audio"
     IMAGE = "image"
     VIDEO = "video"
+    VOICE = "voice"
     TEXT = "text"
 
 
@@ -16,6 +17,7 @@ class QueryCategory(StrEnum):
     AUDIO = "audio"
     IMAGE = "image"
     VIDEO = "video"
+    VOICE = "voice"
     TEXT = "text"
     ALL = "all"
     NONE = "none"

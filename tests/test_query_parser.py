@@ -26,6 +26,12 @@ def test_parse_video_query() -> None:
     assert parsed.search_text == "funny intro"
 
 
+def test_parse_voice_query() -> None:
+    parsed = parse_inline_query("voice quote")
+    assert parsed.category is QueryCategory.VOICE
+    assert parsed.search_text == "quote"
+
+
 def test_parse_text_query() -> None:
     parsed = parse_inline_query("text greeting")
     assert parsed.category is QueryCategory.TEXT

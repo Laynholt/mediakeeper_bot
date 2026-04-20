@@ -96,6 +96,7 @@ class SqlAlchemyMediaRepository:
                 QueryCategory.AUDIO,
                 QueryCategory.IMAGE,
                 QueryCategory.VIDEO,
+                QueryCategory.VOICE,
                 QueryCategory.TEXT,
             }:
                 query = query.where(MediaItemModel.type == category.value)
