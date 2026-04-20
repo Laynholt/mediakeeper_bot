@@ -32,14 +32,16 @@ def create_router(container: AppContainer) -> Router:
 
     @router.inline_query()
     async def handle_inline_query(inline_query: InlineQuery) -> None:
-        results = await container.inline_query_service.build_results(
+        page = await container.inline_query_service.build_page(
             user_id=inline_query.from_user.id,
             raw_query=inline_query.query,
+            offset=inline_query.offset,
         )
         await inline_query.answer(
-            results=results,
+            results=page.results,
             cache_time=container.inline_cache_time,
             is_personal=True,
+            next_offset=page.next_offset,
         )
 
     @router.chosen_inline_result()
@@ -53,7 +55,7 @@ def create_router(container: AppContainer) -> Router:
     @router.message(
         F.chat.type == "private",
         StateFilter(AdminCatalogStates.waiting_for_replacement_file),
-        F.content_type.in_({"audio", "photo", "video", "voice"}),
+        F.content_type.in_({"audio", "photo", "video", "voice", "animation"}),
     )
     async def handle_admin_media_replacement(message: Message, state: FSMContext) -> None:
         if not container.admin_catalog_service.is_admin(message.from_user.id):
@@ -82,7 +84,7 @@ def create_router(container: AppContainer) -> Router:
             reply_markup=admin_media_keyboard(item.id, item.media_type),
         )
 
-    @router.message(F.chat.type == "private", StateFilter(None), F.content_type.in_({"audio", "photo", "video", "voice"}))
+    @router.message(F.chat.type == "private", StateFilter(None), F.content_type.in_({"audio", "photo", "video", "voice", "animation"}))
     async def handle_private_media(message: Message) -> None:
         if container.admin_ingestion_service.is_admin(message.from_user.id):
             draft = await container.admin_ingestion_service.create_draft_from_message(message)
@@ -623,6 +625,7 @@ def _build_start_text(*, is_admin: bool) -> str:
         "<code>@botname image sunset</code> - изображение\n"
         "<code>@botname video intro</code> - видео\n"
         "<code>@botname voice quote</code> - голосовое\n"
+        "<code>@botname gif reaction</code> - GIF\n"
         "<code>@botname text greeting</code> - текст\n"
         "<code>@botname rain ambience</code> - поиск по всему каталогу"
     )

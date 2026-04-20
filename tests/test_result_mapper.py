@@ -1,6 +1,7 @@
 from aiogram.types import (
     InlineQueryResultArticle,
     InlineQueryResultCachedAudio,
+    InlineQueryResultCachedGif,
     InlineQueryResultCachedPhoto,
     InlineQueryResultCachedVideo,
     InlineQueryResultCachedVoice,
@@ -32,6 +33,12 @@ def test_map_voice_result() -> None:
     item = MediaItem(id=11, media_type=MediaType.VOICE, title="Quote", telegram_file_id="voice-file")
     result = map_media_item_to_inline_result(item)
     assert isinstance(result, InlineQueryResultCachedVoice)
+
+
+def test_map_gif_result() -> None:
+    item = MediaItem(id=12, media_type=MediaType.GIF, title="Reaction", telegram_file_id="gif-file")
+    result = map_media_item_to_inline_result(item)
+    assert isinstance(result, InlineQueryResultCachedGif)
 
 
 def test_map_unicode_symbolic_title_result() -> None:

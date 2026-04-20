@@ -23,6 +23,7 @@ class SearchService:
             normalized_query=normalized_query,
             category=request.category,
             limit=request.limit,
+            offset=request.offset,
         )
         await self._analytics_repository.log_search(
             user_id=user_id,
@@ -32,8 +33,8 @@ class SearchService:
         )
         return items
 
-    async def get_popular_media(self, *, user_id: int, limit: int) -> list[MediaItem]:
-        items = await self._media_repository.get_popular_media(limit=limit)
+    async def get_popular_media(self, *, user_id: int, limit: int, offset: int = 0) -> list[MediaItem]:
+        items = await self._media_repository.get_popular_media(limit=limit, offset=offset)
         await self._analytics_repository.log_search(
             user_id=user_id,
             query_raw="",

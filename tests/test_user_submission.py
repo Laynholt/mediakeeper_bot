@@ -21,7 +21,7 @@ class FakeBot:
         self.edited_markups: list[tuple[int, int]] = []
 
     async def download(self, downloadable, destination: str) -> None:
-        Path(destination).write_bytes(b"fake-media")
+        Path(destination).write_bytes(getattr(downloadable, "payload", b"fake-media"))
 
     async def send_audio(self, *, chat_id: int, audio, caption: str, **kwargs):
         self.sent_media.append(("audio", chat_id, caption))
@@ -38,6 +38,10 @@ class FakeBot:
     async def send_voice(self, *, chat_id: int, voice, caption: str, **kwargs):
         self.sent_media.append(("voice", chat_id, caption))
         return SimpleNamespace(chat=SimpleNamespace(id=chat_id), message_id=504)
+
+    async def send_animation(self, *, chat_id: int, animation, caption: str, **kwargs):
+        self.sent_media.append(("animation", chat_id, caption))
+        return SimpleNamespace(chat=SimpleNamespace(id=chat_id), message_id=505)
 
     async def send_message(self, *, chat_id: int, text: str, **kwargs):
         self.sent_messages.append((chat_id, text))
@@ -78,6 +82,7 @@ def build_audio_message(*, user_id: int, username: str | None = None, caption: s
         photo=None,
         video=None,
         voice=None,
+        animation=None,
     )
 
 
@@ -92,6 +97,30 @@ def build_voice_message(*, user_id: int, username: str | None = None, caption: s
             file_unique_id="voice123",
             duration=4,
             mime_type="audio/ogg",
+        ),
+        animation=None,
+    )
+
+
+def build_gif_message(*, user_id: int, username: str | None = None, caption: str = ""):
+    return SimpleNamespace(
+        from_user=SimpleNamespace(id=user_id, username=username, full_name=f"user-{user_id}"),
+        caption=caption,
+        audio=None,
+        photo=None,
+        video=None,
+        voice=None,
+        animation=SimpleNamespace(
+            file_name="reaction.gif",
+            file_unique_id="gif123",
+            duration=3,
+            mime_type="image/gif",
+            payload=(
+                b"GIF89a\x01\x00\x01\x00\x80\x00\x00"
+                b"\x00\x00\x00\xff\xff\xff!\xf9\x04\x00"
+                b"\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00"
+                b"\x01\x00\x00\x02\x02D\x01\x00;"
+            ),
         ),
     )
 
@@ -226,6 +255,49 @@ async def test_voice_submission_can_be_reviewed_and_approved(session_factory, tm
     assert approved_submission.status is SubmissionStatus.ACCEPTED
     assert item.media_type is MediaType.VOICE
     assert item.title == "Voice Quote"
+    assert uploader.calls == 1
+
+
+async def test_gif_submission_can_be_reviewed_and_approved(session_factory, tmp_path: Path) -> None:
+    media_root = tmp_path / "media"
+    media_root.mkdir(parents=True)
+    media_repository = SqlAlchemyMediaRepository(session_factory)
+    submission_repository = SqlAlchemyUserSubmissionRepository(session_factory)
+    uploader = FakeUploader()
+    bot = FakeBot(review_chat_id=-100557)
+    ingestion_service = IngestionService(media_repository, uploader, media_root)
+    service = UserSubmissionService(
+        bot=bot,
+        ingestion_service=ingestion_service,
+        submission_repository=submission_repository,
+        media_repository=media_repository,
+        media_root=media_root,
+        admin_user_id=42,
+    )
+
+    message = build_gif_message(user_id=1003, username="gifuser", caption="Reaction\n#gif")
+    submission = await service.create_submission_from_message(message)
+    assert submission.media_type is MediaType.GIF
+    assert submission.path.endswith(".gif")
+    assert submission.duration == 3
+
+    submission = await service.submit_with_suggested_title(
+        submission_id=submission.id,
+        user_id=1003,
+        submitter=message.from_user,
+        reply_markup=review_submission_keyboard(submission.id),
+    )
+    assert submission.status is SubmissionStatus.PENDING_REVIEW
+    assert submission.review_message_id == 505
+    assert bot.sent_media[0][0] == "animation"
+
+    approved_submission, item = await service.accept_submission(
+        submission_id=submission.id,
+        admin_user_id=42,
+    )
+    assert approved_submission.status is SubmissionStatus.ACCEPTED
+    assert item.media_type is MediaType.GIF
+    assert item.title == "Reaction"
     assert uploader.calls == 1
 
 

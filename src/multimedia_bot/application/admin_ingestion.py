@@ -4,7 +4,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from aiogram import Bot
-from aiogram.types import Audio, Message, PhotoSize, Video, Voice
+from aiogram.types import Animation, Audio, Message, PhotoSize, Video, Voice
 
 from multimedia_bot.application.file_storage import delete_local_file
 from multimedia_bot.domain.models import AdminMediaDraft, IngestionMetadata, MediaItem, MediaType
@@ -56,7 +56,7 @@ class AdminIngestionService:
                 caption=message.caption,
                 tags=caption_data["tags"],
                 performer=getattr(message.audio, "performer", None),
-                duration=getattr(message.audio or message.video or message.voice, "duration", None),
+                duration=getattr(message.audio or message.video or message.voice or message.animation, "duration", None),
                 width=inferred["width"],
                 height=inferred["height"],
                 mime_type=inferred["mime_type"],
@@ -158,7 +158,7 @@ class AdminIngestionService:
         delete_local_file(draft.path)
         return True
 
-    def _extract_media(self, message: Message) -> tuple[MediaType, Audio | Video | Voice | PhotoSize, str]:
+    def _extract_media(self, message: Message) -> tuple[MediaType, Animation | Audio | Video | Voice | PhotoSize, str]:
         if message.audio:
             file_name = message.audio.file_name or f"{message.audio.file_unique_id}.bin"
             return MediaType.AUDIO, message.audio, file_name
@@ -171,6 +171,9 @@ class AdminIngestionService:
         if message.voice:
             file_name = f"{message.voice.file_unique_id}.ogg"
             return MediaType.VOICE, message.voice, file_name
+        if message.animation:
+            file_name = message.animation.file_name or f"{message.animation.file_unique_id}.gif"
+            return MediaType.GIF, message.animation, file_name
         raise ValueError("Неподдерживаемый тип медиа-сообщения.")
 
 

@@ -10,6 +10,7 @@ class MediaType(StrEnum):
     IMAGE = "image"
     VIDEO = "video"
     VOICE = "voice"
+    GIF = "gif"
     TEXT = "text"
 
 
@@ -18,6 +19,7 @@ class QueryCategory(StrEnum):
     IMAGE = "image"
     VIDEO = "video"
     VOICE = "voice"
+    GIF = "gif"
     TEXT = "text"
     ALL = "all"
     NONE = "none"
@@ -75,6 +77,7 @@ class SearchRequest:
     query_text: str
     category: QueryCategory
     limit: int
+    offset: int = 0
 
 
 @dataclass(slots=True)

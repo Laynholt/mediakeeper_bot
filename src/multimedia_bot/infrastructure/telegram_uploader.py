@@ -67,6 +67,17 @@ class TelegramStorageUploader:
                 raise RuntimeError("Telegram не вернул метаданные голосового сообщения.")
             return _uploaded(message.voice.file_id, message)
 
+        if media_type is MediaType.GIF:
+            message = await self._bot.send_animation(
+                chat_id=self._storage_chat_id,
+                animation=input_file,
+                caption=caption,
+                duration=duration,
+            )
+            if message.animation is None:
+                raise RuntimeError("Telegram не вернул метаданные GIF.")
+            return _uploaded(message.animation.file_id, message)
+
         raise ValueError(f"Неподдерживаемый тип медиа: {media_type}")
 
     async def delete_uploaded_media(self, uploaded: UploadedMedia) -> None:

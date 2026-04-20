@@ -32,6 +32,12 @@ def test_parse_voice_query() -> None:
     assert parsed.search_text == "quote"
 
 
+def test_parse_gif_query() -> None:
+    parsed = parse_inline_query("gif reaction")
+    assert parsed.category is QueryCategory.GIF
+    assert parsed.search_text == "reaction"
+
+
 def test_parse_text_query() -> None:
     parsed = parse_inline_query("text greeting")
     assert parsed.category is QueryCategory.TEXT

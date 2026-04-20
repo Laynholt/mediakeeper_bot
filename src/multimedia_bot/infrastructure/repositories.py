@@ -84,6 +84,7 @@ class SqlAlchemyMediaRepository:
         normalized_query: str,
         category: QueryCategory,
         limit: int,
+        offset: int = 0,
     ) -> list[MediaItem]:
         async with session_scope(self._session_factory) as session:
             query = (
@@ -97,6 +98,7 @@ class SqlAlchemyMediaRepository:
                 QueryCategory.IMAGE,
                 QueryCategory.VIDEO,
                 QueryCategory.VOICE,
+                QueryCategory.GIF,
                 QueryCategory.TEXT,
             }:
                 query = query.where(MediaItemModel.type == category.value)
@@ -145,16 +147,17 @@ class SqlAlchemyMediaRepository:
             else:
                 query = query.order_by(desc(MediaItemModel.usage_count), desc(MediaItemModel.created_at))
 
-            result = await session.execute(query.limit(limit))
+            result = await session.execute(query.offset(offset).limit(limit))
             return [_to_domain(row) for row in result.scalars().unique().all()]
 
-    async def get_popular_media(self, *, limit: int) -> list[MediaItem]:
+    async def get_popular_media(self, *, limit: int, offset: int = 0) -> list[MediaItem]:
         async with session_scope(self._session_factory) as session:
             result = await session.execute(
                 select(MediaItemModel)
                 .options(selectinload(MediaItemModel.tags))
                 .where(MediaItemModel.is_active.is_(True))
                 .order_by(desc(MediaItemModel.usage_count), desc(MediaItemModel.created_at))
+                .offset(offset)
                 .limit(limit)
             )
             return [_to_domain(row) for row in result.scalars().unique().all()]

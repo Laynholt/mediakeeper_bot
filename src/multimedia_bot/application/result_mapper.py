@@ -3,6 +3,7 @@ from __future__ import annotations
 from aiogram.types import (
     InlineQueryResultArticle,
     InlineQueryResultCachedAudio,
+    InlineQueryResultCachedGif,
     InlineQueryResultCachedPhoto,
     InlineQueryResultCachedVideo,
     InlineQueryResultCachedVoice,
@@ -60,6 +61,13 @@ def map_media_item_to_inline_result(item: MediaItem):
         return InlineQueryResultCachedVoice(
             id=result_id,
             voice_file_id=item.telegram_file_id,
+            title=item.title,
+            caption=item.caption,
+        )
+    if item.media_type is MediaType.GIF:
+        return InlineQueryResultCachedGif(
+            id=result_id,
+            gif_file_id=item.telegram_file_id,
             title=item.title,
             caption=item.caption,
         )
