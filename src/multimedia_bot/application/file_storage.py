@@ -3,10 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 
 
-def delete_local_file(path: str | None) -> None:
+def delete_local_file(path: str | None) -> bool:
     if not path:
-        return
+        return False
+    file_path = Path(path)
+    if not file_path.exists():
+        return False
     try:
-        Path(path).unlink(missing_ok=True)
+        file_path.unlink()
     except OSError:
-        return
+        return False
+    return True

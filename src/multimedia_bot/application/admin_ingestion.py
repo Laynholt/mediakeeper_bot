@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from uuid import uuid4
 
 from aiogram import Bot
-from aiogram.types import Animation, Audio, Message, PhotoSize, Video, Voice
+from aiogram.types import Message
 
 from multimedia_bot.application.file_storage import delete_local_file
 from multimedia_bot.domain.models import AdminMediaDraft, IngestionMetadata, MediaItem, MediaType
 from multimedia_bot.application.ingestion import IngestionService
+from multimedia_bot.application.telegram_media import build_media_file_name, extract_media_from_message
 from multimedia_bot.application.validation import is_valid_record_title, sanitize_title
 from multimedia_bot.domain.repositories import AdminDraftRepository, MediaRepository
 from multimedia_bot.infrastructure.file_metadata import infer_file_metadata, parse_caption_metadata, parse_text_metadata
@@ -37,10 +37,10 @@ class AdminIngestionService:
 
     async def create_draft_from_message(self, message: Message) -> AdminMediaDraft:
         previous_draft = await self._draft_repository.get_draft_for_admin(message.from_user.id)
-        media_type, downloadable, original_name = self._extract_media(message)
+        media_type, downloadable, original_name = extract_media_from_message(message)
         destination_dir = self._media_root / media_type.value
         destination_dir.mkdir(parents=True, exist_ok=True)
-        destination_path = destination_dir / _build_file_name(original_name)
+        destination_path = destination_dir / build_media_file_name(original_name)
         try:
             await self._bot.download(downloadable, destination=str(destination_path))
 
@@ -157,30 +157,3 @@ class AdminIngestionService:
         await self._draft_repository.delete_draft_for_admin(admin_user_id)
         delete_local_file(draft.path)
         return True
-
-    def _extract_media(self, message: Message) -> tuple[MediaType, Animation | Audio | Video | Voice | PhotoSize, str]:
-        if message.audio:
-            file_name = message.audio.file_name or f"{message.audio.file_unique_id}.bin"
-            return MediaType.AUDIO, message.audio, file_name
-        if message.photo:
-            file_name = f"{message.photo[-1].file_unique_id}.jpg"
-            return MediaType.IMAGE, message.photo[-1], file_name
-        if message.video:
-            file_name = message.video.file_name or f"{message.video.file_unique_id}.mp4"
-            return MediaType.VIDEO, message.video, file_name
-        if message.voice:
-            file_name = f"{message.voice.file_unique_id}.ogg"
-            return MediaType.VOICE, message.voice, file_name
-        if message.animation:
-            file_name = message.animation.file_name or f"{message.animation.file_unique_id}.gif"
-            return MediaType.GIF, message.animation, file_name
-        raise ValueError("Неподдерживаемый тип медиа-сообщения.")
-
-
-def _build_file_name(original_name: str) -> str:
-    path = Path(original_name)
-    extension = path.suffix or ".bin"
-    stem = path.stem or "media"
-    safe_stem = "".join(char for char in stem if char.isalnum() or char in {"-", "_"}).strip("_-")
-    safe_stem = safe_stem or "media"
-    return f"{safe_stem}-{uuid4().hex[:8]}{extension.lower()}"

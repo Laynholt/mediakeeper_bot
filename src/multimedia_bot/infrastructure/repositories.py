@@ -104,15 +104,15 @@ class SqlAlchemyMediaRepository:
                 query = query.where(MediaItemModel.type == category.value)
 
             if normalized_query:
-                pattern = f"%{normalized_query}%"
+                pattern = _like_contains_pattern(normalized_query)
                 query = query.outerjoin(MediaItemModel.tags).where(
                     or_(
                         func.lower(MediaItemModel.title) == normalized_query,
-                        func.lower(MediaItemModel.title).like(pattern),
-                        func.lower(MediaItemModel.description).like(pattern),
-                        func.lower(MediaItemModel.content_text).like(pattern),
-                        func.lower(TagModel.slug).like(pattern),
-                        func.lower(MediaItemModel.search_text).like(pattern),
+                        func.lower(MediaItemModel.title).like(pattern, escape="\\"),
+                        func.lower(MediaItemModel.description).like(pattern, escape="\\"),
+                        func.lower(MediaItemModel.content_text).like(pattern, escape="\\"),
+                        func.lower(TagModel.slug).like(pattern, escape="\\"),
+                        func.lower(MediaItemModel.search_text).like(pattern, escape="\\"),
                     )
                 )
                 exact_title = case(
@@ -120,19 +120,19 @@ class SqlAlchemyMediaRepository:
                     else_=0,
                 )
                 partial_title = case(
-                    (func.lower(MediaItemModel.title).like(pattern), 1),
+                    (func.lower(MediaItemModel.title).like(pattern, escape="\\"), 1),
                     else_=0,
                 )
                 tag_hit = case(
-                    (func.lower(TagModel.slug).like(pattern), 1),
+                    (func.lower(TagModel.slug).like(pattern, escape="\\"), 1),
                     else_=0,
                 )
                 description_hit = case(
-                    (func.lower(MediaItemModel.description).like(pattern), 1),
+                    (func.lower(MediaItemModel.description).like(pattern, escape="\\"), 1),
                     else_=0,
                 )
                 content_hit = case(
-                    (func.lower(MediaItemModel.content_text).like(pattern), 1),
+                    (func.lower(MediaItemModel.content_text).like(pattern, escape="\\"), 1),
                     else_=0,
                 )
                 query = query.order_by(
@@ -196,16 +196,16 @@ class SqlAlchemyMediaRepository:
                 .where(MediaItemModel.is_active.is_(True))
             )
             if normalized_query:
-                pattern = f"%{normalized_query}%"
+                pattern = _like_contains_pattern(normalized_query)
                 statement = (
                     statement.outerjoin(MediaItemModel.tags)
                     .where(
                         or_(
-                            func.lower(MediaItemModel.title).like(pattern),
-                            func.lower(MediaItemModel.description).like(pattern),
-                            func.lower(MediaItemModel.content_text).like(pattern),
-                            func.lower(MediaItemModel.search_text).like(pattern),
-                            func.lower(TagModel.slug).like(pattern),
+                            func.lower(MediaItemModel.title).like(pattern, escape="\\"),
+                            func.lower(MediaItemModel.description).like(pattern, escape="\\"),
+                            func.lower(MediaItemModel.content_text).like(pattern, escape="\\"),
+                            func.lower(MediaItemModel.search_text).like(pattern, escape="\\"),
+                            func.lower(TagModel.slug).like(pattern, escape="\\"),
                         )
                     )
                     .distinct()
@@ -219,17 +219,17 @@ class SqlAlchemyMediaRepository:
         async with session_scope(self._session_factory) as session:
             statement = select(func.count(func.distinct(MediaItemModel.id))).where(MediaItemModel.is_active.is_(True))
             if normalized_query:
-                pattern = f"%{normalized_query}%"
+                pattern = _like_contains_pattern(normalized_query)
                 statement = (
                     statement.select_from(MediaItemModel)
                     .outerjoin(MediaItemModel.tags)
                     .where(
                         or_(
-                            func.lower(MediaItemModel.title).like(pattern),
-                            func.lower(MediaItemModel.description).like(pattern),
-                            func.lower(MediaItemModel.content_text).like(pattern),
-                            func.lower(MediaItemModel.search_text).like(pattern),
-                            func.lower(TagModel.slug).like(pattern),
+                            func.lower(MediaItemModel.title).like(pattern, escape="\\"),
+                            func.lower(MediaItemModel.description).like(pattern, escape="\\"),
+                            func.lower(MediaItemModel.content_text).like(pattern, escape="\\"),
+                            func.lower(MediaItemModel.search_text).like(pattern, escape="\\"),
+                            func.lower(TagModel.slug).like(pattern, escape="\\"),
                         )
                     )
                 )
@@ -565,6 +565,11 @@ def _is_duplicate_title_error(error: IntegrityError) -> bool:
 def _is_duplicate_media_identity_error(error: IntegrityError) -> bool:
     message = str(error.orig).lower()
     return "storage_path" in message or "telegram_file_id" in message
+
+
+def _like_contains_pattern(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
 
 
 def _to_draft_domain(model: AdminMediaDraftModel) -> AdminMediaDraft:

@@ -48,18 +48,20 @@ class InlineQueryService:
         return (await self.build_page(user_id=user_id, raw_query=raw_query)).results
 
     def _build_page_from_items(self, items: list, offset: int, *, page_limit: int) -> InlineQueryPage:
-        page_items = items[:page_limit]
-        next_offset = str(offset + page_limit) if len(items) > page_limit else ""
-        return InlineQueryPage(results=self._map_media(page_items), next_offset=next_offset)
-
-    def _map_media(self, items: list) -> list:
         results = []
-        for item in items:
+        consumed_for_page = 0
+        for index, item in enumerate(items, start=1):
             result = map_media_item_to_inline_result(item)
-            if result is not None:
-                results.append(result)
-        return results
-
+            if result is None:
+                if len(results) < page_limit:
+                    consumed_for_page = index
+                continue
+            if len(results) >= page_limit:
+                next_offset = str(offset + consumed_for_page)
+                return InlineQueryPage(results=results, next_offset=next_offset)
+            results.append(result)
+            consumed_for_page = index
+        return InlineQueryPage(results=results, next_offset="")
 
 def _parse_offset(offset: str) -> int:
     try:

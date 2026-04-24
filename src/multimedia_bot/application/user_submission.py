@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+from contextlib import suppress
 from pathlib import Path
-from uuid import uuid4
 
 from aiogram import Bot
-from aiogram.types import Animation, Audio, FSInputFile, InlineKeyboardMarkup, Message, PhotoSize, User, Video, Voice
+from aiogram.types import FSInputFile, InlineKeyboardMarkup, Message, User
 
 from multimedia_bot.application.file_storage import delete_local_file
 from multimedia_bot.application.ingestion import IngestionService
 from multimedia_bot.application.telegram_limits import trim_telegram_caption, trim_telegram_message_text
+from multimedia_bot.application.telegram_media import build_media_file_name, extract_media_from_message
 from multimedia_bot.application.validation import is_valid_record_title, sanitize_title
 from multimedia_bot.domain.models import IngestionMetadata, MediaItem, MediaType, SubmissionStatus, UserMediaSubmission
 from multimedia_bot.domain.repositories import MediaRepository, UserSubmissionRepository
@@ -44,10 +45,10 @@ class UserSubmissionService:
             raise RuntimeError("ADMIN_USER_ID не настроен.")
         previous_submission = await self._submission_repository.get_latest_actionable_for_user(message.from_user.id)
 
-        media_type, downloadable, original_name = self._extract_media(message)
+        media_type, downloadable, original_name = extract_media_from_message(message)
         destination_dir = self._media_root / media_type.value
         destination_dir.mkdir(parents=True, exist_ok=True)
-        destination_path = destination_dir / _build_file_name(original_name)
+        destination_path = destination_dir / build_media_file_name(original_name)
         try:
             await self._bot.download(downloadable, destination=str(destination_path))
 
@@ -306,7 +307,12 @@ class UserSubmissionService:
         submission.status = SubmissionStatus.ACCEPTED
         submission.title = title
         submission.editing_admin_user_id = None
-        submission = await self._submission_repository.update_submission(submission)
+        try:
+            submission = await self._submission_repository.update_submission(submission)
+        except Exception:
+            with suppress(Exception):
+                await self._media_repository.delete_media(item.id)
+            raise
         return submission, item
 
     async def _ensure_alias_available(self, title: str) -> None:
@@ -411,34 +417,6 @@ class UserSubmissionService:
     def _ensure_admin(self, user_id: int) -> None:
         if not self.is_admin(user_id):
             raise PermissionError("Это действие доступно только администраторам.")
-
-    def _extract_media(self, message: Message) -> tuple[MediaType, Animation | Audio | Video | Voice | PhotoSize, str]:
-        if message.audio:
-            file_name = message.audio.file_name or f"{message.audio.file_unique_id}.bin"
-            return MediaType.AUDIO, message.audio, file_name
-        if message.photo:
-            file_name = f"{message.photo[-1].file_unique_id}.jpg"
-            return MediaType.IMAGE, message.photo[-1], file_name
-        if message.video:
-            file_name = message.video.file_name or f"{message.video.file_unique_id}.mp4"
-            return MediaType.VIDEO, message.video, file_name
-        if message.voice:
-            file_name = f"{message.voice.file_unique_id}.ogg"
-            return MediaType.VOICE, message.voice, file_name
-        if message.animation:
-            file_name = message.animation.file_name or f"{message.animation.file_unique_id}.gif"
-            return MediaType.GIF, message.animation, file_name
-        raise ValueError("Неподдерживаемый тип медиа-сообщения.")
-
-
-def _build_file_name(original_name: str) -> str:
-    path = Path(original_name)
-    extension = path.suffix or ".bin"
-    stem = path.stem or "media"
-    safe_stem = "".join(char for char in stem if char.isalnum() or char in {"-", "_"}).strip("_-")
-    safe_stem = safe_stem or "media"
-    return f"{safe_stem}-{uuid4().hex[:8]}{extension.lower()}"
-
 
 def _format_user_label(user: User) -> str:
     if user.username:

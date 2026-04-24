@@ -20,7 +20,10 @@ data/
 # Project folders
 stuff/*
 !stuff/media/
-!stuff/media/**
+stuff/media/**/*
+!stuff/media/**/
+!stuff/media/**/.gitkeep
+!stuff/media/**/*.json
 
 # Other
 swap-pane

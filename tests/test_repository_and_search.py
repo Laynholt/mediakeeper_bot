@@ -170,3 +170,35 @@ async def test_repository_update_by_id_does_not_reassign_other_item_identity(ses
     still_second = await repository.get_media_by_id(second.id)
     assert still_second is not None
     assert still_second.title == "Second"
+
+
+async def test_search_treats_like_wildcards_as_literal_query_text(session_factory) -> None:
+    media_repository = SqlAlchemyMediaRepository(session_factory)
+    analytics_repository = SqlAlchemyAnalyticsRepository(session_factory)
+    service = SearchService(media_repository, analytics_repository)
+
+    await media_repository.upsert_media(
+        MediaItem(
+            id=0,
+            media_type=MediaType.TEXT,
+            title="100% Real",
+            content="literal percent",
+            search_text="100% real literal percent",
+        )
+    )
+    await media_repository.upsert_media(
+        MediaItem(
+            id=0,
+            media_type=MediaType.TEXT,
+            title="100 Percent",
+            content="word percent",
+            search_text="100 percent word percent",
+        )
+    )
+
+    results = await service.search(
+        user_id=1,
+        request=SearchRequest(query_text="100%", category=QueryCategory.ALL, limit=20),
+    )
+
+    assert [item.title for item in results] == ["100% Real"]

@@ -1,4 +1,5 @@
 from pathlib import Path
+from uuid import uuid4
 
 from aiogram import F, Router
 from aiogram.filters import CommandStart, StateFilter
@@ -180,7 +181,7 @@ def create_router(container: AppContainer) -> Router:
         if message.document is None or not (message.document.file_name or "").lower().endswith(".json"):
             return
 
-        destination = Path("data/imports") / message.document.file_name
+        destination = _build_import_document_path(message.document.file_name)
         await container.admin_catalog_service.download_document(
             file_id=message.document.file_id,
             destination=destination,
@@ -654,6 +655,16 @@ def _build_start_text(*, is_admin: bool) -> str:
         "3. Администратор проверит заявку.\n"
         "4. После одобрения материал появится в inline-каталоге."
     )
+
+
+def _build_import_document_path(file_name: str, *, import_dir: Path = Path("data/imports")) -> Path:
+    clean_name = file_name.replace("\\", "/").rsplit("/", maxsplit=1)[-1].strip()
+    path = Path(clean_name)
+    stem = path.stem or "manifest"
+    safe_stem = "".join(character for character in stem if character.isalnum() or character in {"-", "_"}).strip("_-")
+    safe_stem = safe_stem or "manifest"
+    suffix = path.suffix.lower() if path.suffix else ".json"
+    return import_dir / f"{safe_stem}-{uuid4().hex[:8]}{suffix}"
 
 
 async def _handle_admin_review_title(message: Message, container: AppContainer) -> bool:

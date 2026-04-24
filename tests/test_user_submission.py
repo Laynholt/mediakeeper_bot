@@ -70,6 +70,13 @@ class FailingSubmissionRepository(SqlAlchemyUserSubmissionRepository):
         raise RuntimeError("submission database unavailable")
 
 
+class FailingAcceptedUpdateSubmissionRepository(SqlAlchemyUserSubmissionRepository):
+    async def update_submission(self, submission):
+        if submission.status is SubmissionStatus.ACCEPTED:
+            raise RuntimeError("accepted submission update failed")
+        return await super().update_submission(submission)
+
+
 def build_audio_message(*, user_id: int, username: str | None = None, caption: str = ""):
     return SimpleNamespace(
         from_user=SimpleNamespace(id=user_id, username=username, full_name=f"user-{user_id}"),
@@ -500,3 +507,39 @@ async def test_user_media_download_is_removed_when_submission_save_fails(session
         raise AssertionError("Expected submission save failure")
 
     assert list(media_root.rglob("*.mp3")) == []
+
+
+async def test_failed_acceptance_update_removes_published_catalog_item(session_factory, tmp_path: Path) -> None:
+    media_root = tmp_path / "media"
+    media_root.mkdir(parents=True)
+    media_repository = SqlAlchemyMediaRepository(session_factory)
+    submission_repository = FailingAcceptedUpdateSubmissionRepository(session_factory)
+    uploader = FakeUploader()
+    bot = FakeBot(review_chat_id=42)
+    ingestion_service = IngestionService(media_repository, uploader, media_root)
+    service = UserSubmissionService(
+        bot=bot,
+        ingestion_service=ingestion_service,
+        submission_repository=submission_repository,
+        media_repository=media_repository,
+        media_root=media_root,
+        admin_user_id=42,
+    )
+
+    message = build_audio_message(user_id=9009, caption="rollback title")
+    submission = await service.create_submission_from_message(message)
+    submission = await service.submit_with_suggested_title(
+        submission_id=submission.id,
+        user_id=9009,
+        submitter=message.from_user,
+        reply_markup=review_submission_keyboard(submission.id),
+    )
+
+    try:
+        await service.accept_submission(submission_id=submission.id, admin_user_id=42)
+    except RuntimeError as error:
+        assert "accepted submission update failed" in str(error)
+    else:
+        raise AssertionError("Expected accepted submission update failure")
+
+    assert await media_repository.get_media_by_title("rollback title") is None

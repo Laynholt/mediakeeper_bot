@@ -71,3 +71,20 @@ async def test_inline_query_uses_next_offset_for_additional_pages(session_factor
     second_page = await service.build_page(user_id=1, raw_query="voice", offset=first_page.next_offset)
     assert len(second_page.results) == 1
     assert second_page.next_offset == ""
+
+
+async def test_inline_page_skips_unmappable_items_before_filling_results() -> None:
+    class FakeSearchService:
+        async def search(self, **_: object) -> list:
+            from multimedia_bot.domain.models import MediaItem
+
+            return [
+                MediaItem(id=1, media_type=MediaType.IMAGE, title="missing file id"),
+                MediaItem(id=2, media_type=MediaType.IMAGE, title="valid", telegram_file_id="photo-file"),
+            ]
+
+    service = InlineQueryService(FakeSearchService(), search_limit=1)
+
+    page = await service.build_page(user_id=1, raw_query="image")
+
+    assert [result.id for result in page.results] == ["media:2"]

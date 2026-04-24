@@ -5,10 +5,9 @@ from pathlib import Path
 import shutil
 from tempfile import NamedTemporaryFile
 from typing import Literal
-from uuid import uuid4
 
 from aiogram import Bot
-from aiogram.types import Animation, Audio, Message, PhotoSize, Video, Voice
+from aiogram.types import Message
 
 from multimedia_bot.application.file_storage import delete_local_file
 from multimedia_bot.application.ingestion import build_search_text, IngestionService
@@ -17,6 +16,7 @@ from multimedia_bot.application.telegram_limits import (
     ensure_telegram_caption_limit,
     ensure_telegram_message_text_limit,
 )
+from multimedia_bot.application.telegram_media import build_media_file_name, extract_media_from_message
 from multimedia_bot.application.validation import is_valid_record_title, sanitize_title
 from multimedia_bot.domain.models import IngestionMetadata, MediaItem, MediaType
 from multimedia_bot.domain.repositories import MediaRepository
@@ -114,7 +114,7 @@ class AdminCatalogService:
         if item.media_type is MediaType.TEXT:
             raise ValueError("Для текстовой записи замена файла недоступна.")
 
-        media_type, downloadable, original_name = self._extract_media(message)
+        media_type, downloadable, original_name = extract_media_from_message(message)
         if media_type is not item.media_type:
             raise ValueError(
                 f"Ожидался файл типа {item.media_type.value}, получен {media_type.value}."
@@ -122,7 +122,7 @@ class AdminCatalogService:
 
         destination_dir = self._media_root / media_type.value
         destination_dir.mkdir(parents=True, exist_ok=True)
-        destination_path = destination_dir / _build_import_file_name(original_name)
+        destination_path = destination_dir / build_media_file_name(original_name)
         await self._bot.download(downloadable, destination=str(destination_path))
 
         inferred = infer_file_metadata(destination_path)
@@ -291,7 +291,7 @@ class AdminCatalogService:
         except ValueError:
             destination_dir = media_root / metadata.media_type.value
             destination_dir.mkdir(parents=True, exist_ok=True)
-            destination_path = destination_dir / _build_import_file_name(absolute_path.name)
+            destination_path = destination_dir / build_media_file_name(absolute_path.name)
             shutil.copy2(absolute_path, destination_path)
             metadata.path = str(destination_path)
             return metadata
@@ -310,25 +310,6 @@ class AdminCatalogService:
         if any(_is_relative_to(absolute_path, root) for root in allowed_roots):
             return
         raise ValueError("Манифест содержит путь к файлу вне каталога импорта или MEDIA_ROOT.")
-
-    def _extract_media(self, message: Message) -> tuple[MediaType, Animation | Audio | Video | Voice | PhotoSize, str]:
-        if message.audio:
-            file_name = message.audio.file_name or f"{message.audio.file_unique_id}.bin"
-            return MediaType.AUDIO, message.audio, file_name
-        if message.photo:
-            file_name = f"{message.photo[-1].file_unique_id}.jpg"
-            return MediaType.IMAGE, message.photo[-1], file_name
-        if message.video:
-            file_name = message.video.file_name or f"{message.video.file_unique_id}.mp4"
-            return MediaType.VIDEO, message.video, file_name
-        if message.voice:
-            file_name = f"{message.voice.file_unique_id}.ogg"
-            return MediaType.VOICE, message.voice, file_name
-        if message.animation:
-            file_name = message.animation.file_name or f"{message.animation.file_unique_id}.gif"
-            return MediaType.GIF, message.animation, file_name
-        raise ValueError("Неподдерживаемый тип медиа-сообщения.")
-
 
 def build_metadata_from_media(*, item: MediaItem, media_root: Path) -> IngestionMetadata:
     absolute_path = (
@@ -375,12 +356,3 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
     except ValueError:
         return False
     return True
-
-
-def _build_import_file_name(original_name: str) -> str:
-    path = Path(original_name)
-    extension = path.suffix or ".bin"
-    stem = path.stem or "media"
-    safe_stem = "".join(character for character in stem if character.isalnum() or character in {"-", "_"}).strip("_-")
-    safe_stem = safe_stem or "media"
-    return f"{safe_stem}-{uuid4().hex[:8]}{extension.lower()}"
