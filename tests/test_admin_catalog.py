@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from zipfile import ZipFile
 
 from multimedia_bot.application.admin_catalog import AdminCatalogService
 from multimedia_bot.application.ingestion import IngestionService
@@ -108,6 +109,174 @@ async def test_admin_catalog_export_and_import_manifest(session_factory, tmp_pat
     assert imported_count == 1
     imported_item = await media_repository.get_media_by_title("imported")
     assert imported_item is not None
+
+
+async def test_admin_catalog_export_backup_includes_manifest_and_media_archive(session_factory, tmp_path: Path) -> None:
+    media_root = tmp_path / "media"
+    media_root.mkdir(parents=True)
+    audio_dir = media_root / "audio"
+    audio_dir.mkdir()
+    audio_path = audio_dir / "rain.mp3"
+    audio_path.write_bytes(b"rain")
+
+    media_repository = SqlAlchemyMediaRepository(session_factory)
+    uploader = FakeUploader()
+    ingestion_service = IngestionService(media_repository, uploader, media_root)
+    service = AdminCatalogService(
+        bot=FakeBot(),
+        media_repository=media_repository,
+        ingestion_service=ingestion_service,
+        media_root=media_root,
+        admin_user_id=42,
+    )
+
+    await ingestion_service.ingest(
+        IngestionMetadata(
+            media_type=MediaType.AUDIO,
+            path=str(audio_path),
+            title="rain",
+            tags=["weather"],
+        )
+    )
+
+    package = await service.export_backup(max_archive_size_bytes=1024)
+
+    manifest = json.loads(package.manifest_path.read_text(encoding="utf-8"))
+    assert package.item_count == 1
+    assert package.skipped_files == []
+    assert manifest["items"][0]["path"] == "audio/rain.mp3"
+    assert len(package.archive_paths) == 1
+
+    with ZipFile(package.archive_paths[0]) as archive:
+        names = set(archive.namelist())
+        assert "manifest.json" in names
+        assert "media/audio/rain.mp3" in names
+        archive_manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+        assert archive_manifest["items"][0]["path"] == "media/audio/rain.mp3"
+
+
+async def test_admin_catalog_export_backup_splits_archives_by_size(session_factory, tmp_path: Path) -> None:
+    media_root = tmp_path / "media"
+    media_root.mkdir(parents=True)
+    media_repository = SqlAlchemyMediaRepository(session_factory)
+    uploader = FakeUploader()
+    ingestion_service = IngestionService(media_repository, uploader, media_root)
+    service = AdminCatalogService(
+        bot=FakeBot(),
+        media_repository=media_repository,
+        ingestion_service=ingestion_service,
+        media_root=media_root,
+        admin_user_id=42,
+    )
+
+    for title in ("first", "second"):
+        path = media_root / f"{title}.mp3"
+        path.write_bytes(b"x" * 10)
+        await ingestion_service.ingest(
+            IngestionMetadata(media_type=MediaType.AUDIO, path=str(path), title=title)
+        )
+
+    package = await service.export_backup(max_archive_size_bytes=15)
+
+    assert package.item_count == 2
+    assert len(package.archive_paths) == 2
+
+
+async def test_admin_catalog_export_backup_skips_single_file_larger_than_archive_limit(session_factory, tmp_path: Path) -> None:
+    media_root = tmp_path / "media"
+    media_root.mkdir(parents=True)
+    media_repository = SqlAlchemyMediaRepository(session_factory)
+    uploader = FakeUploader()
+    ingestion_service = IngestionService(media_repository, uploader, media_root)
+    service = AdminCatalogService(
+        bot=FakeBot(),
+        media_repository=media_repository,
+        ingestion_service=ingestion_service,
+        media_root=media_root,
+        admin_user_id=42,
+    )
+    path = media_root / "large.mp3"
+    path.write_bytes(b"x" * 20)
+    await ingestion_service.ingest(
+        IngestionMetadata(media_type=MediaType.AUDIO, path=str(path), title="large")
+    )
+
+    package = await service.export_backup(max_archive_size_bytes=10)
+
+    assert package.item_count == 1
+    assert package.archive_paths == []
+    assert package.skipped_files == [path]
+
+
+async def test_admin_catalog_import_backup_archive_restores_media(session_factory, tmp_path: Path) -> None:
+    media_root = tmp_path / "media"
+    media_root.mkdir(parents=True)
+    archive_path = tmp_path / "backup.zip"
+    with ZipFile(archive_path, "w") as archive:
+        archive.writestr(
+            "manifest.json",
+            json.dumps(
+                {
+                    "items": [
+                        {
+                            "path": "media/audio/restored.mp3",
+                            "type": "audio",
+                            "title": "restored",
+                            "tags": ["backup"],
+                        }
+                    ]
+                }
+            ),
+        )
+        archive.writestr("media/audio/restored.mp3", b"restored")
+
+    media_repository = SqlAlchemyMediaRepository(session_factory)
+    uploader = FakeUploader()
+    ingestion_service = IngestionService(media_repository, uploader, media_root)
+    service = AdminCatalogService(
+        bot=FakeBot(),
+        media_repository=media_repository,
+        ingestion_service=ingestion_service,
+        media_root=media_root,
+        admin_user_id=42,
+    )
+
+    imported = await service.import_backup_archive(archive_path)
+
+    assert imported == 1
+    restored = await media_repository.get_media_by_title("restored")
+    assert restored is not None
+    assert restored.tags == ["backup"]
+    assert restored.storage_path is not None
+    assert (media_root / restored.storage_path).exists()
+
+
+async def test_admin_catalog_import_backup_archive_rejects_zip_path_traversal(session_factory, tmp_path: Path) -> None:
+    media_root = tmp_path / "media"
+    media_root.mkdir(parents=True)
+    archive_path = tmp_path / "malicious.zip"
+    with ZipFile(archive_path, "w") as archive:
+        archive.writestr("../evil.txt", "evil")
+        archive.writestr("manifest.json", json.dumps({"items": []}))
+
+    media_repository = SqlAlchemyMediaRepository(session_factory)
+    ingestion_service = IngestionService(media_repository, FakeUploader(), media_root)
+    service = AdminCatalogService(
+        bot=FakeBot(),
+        media_repository=media_repository,
+        ingestion_service=ingestion_service,
+        media_root=media_root,
+        admin_user_id=42,
+    )
+
+    try:
+        await service.import_backup_archive(archive_path)
+    except ValueError as error:
+        assert "небезопасный путь" in str(error)
+    else:
+        raise AssertionError("Expected unsafe zip path rejection")
+
+    assert not (tmp_path / "evil.txt").exists()
 
 
 async def test_admin_catalog_pagination(session_factory, tmp_path: Path) -> None:

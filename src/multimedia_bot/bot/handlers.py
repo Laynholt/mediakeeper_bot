@@ -137,14 +137,28 @@ def create_router(container: AppContainer) -> Router:
         if not container.admin_catalog_service.is_admin(message.from_user.id):
             return
 
-        path, count = await container.admin_catalog_service.export_manifest()
+        package = await container.admin_catalog_service.export_backup()
+        paths_to_delete = [package.manifest_path, *package.archive_paths]
         try:
             await message.answer_document(
-                document=FSInputFile(str(path)),
-                caption=f"Экспортировано {count} медиафайлов.",
+                document=FSInputFile(str(package.manifest_path), filename="manifest.json"),
+                caption=(
+                    f"Экспортировано записей: {package.item_count}.\n"
+                    f"ZIP-архивов: {len(package.archive_paths)}.\n"
+                    f"Пропущено файлов из-за размера: {len(package.skipped_files)}."
+                ),
             )
+            for index, archive_path in enumerate(package.archive_paths, start=1):
+                await message.answer_document(
+                    document=FSInputFile(
+                        str(archive_path),
+                        filename=f"multimedia-export-{index:03}.zip",
+                    ),
+                    caption=f"Архив {index}/{len(package.archive_paths)}.",
+                )
         finally:
-            delete_local_file(str(path))
+            for path in paths_to_delete:
+                delete_local_file(str(path))
 
     @router.message(F.chat.type == "private", F.text == "/admin_reimport")
     async def handle_admin_reimport(message: Message) -> None:
@@ -178,7 +192,8 @@ def create_router(container: AppContainer) -> Router:
     async def handle_admin_import_document(message: Message) -> None:
         if not container.admin_catalog_service.is_admin(message.from_user.id):
             return
-        if message.document is None or not (message.document.file_name or "").lower().endswith(".json"):
+        file_name = (message.document.file_name or "").lower() if message.document else ""
+        if message.document is None or not file_name.endswith((".json", ".zip")):
             return
 
         destination = _build_import_document_path(message.document.file_name)
@@ -187,11 +202,15 @@ def create_router(container: AppContainer) -> Router:
             destination=destination,
         )
         try:
-            imported = await container.admin_catalog_service.import_manifest(destination)
+            if file_name.endswith(".zip"):
+                imported = await container.admin_catalog_service.import_backup_archive(destination)
+            else:
+                imported = await container.admin_catalog_service.import_manifest(destination)
         except Exception as error:
             await message.answer(f"Импорт завершился ошибкой: {error}")
         else:
-            await message.answer(f"Импортировано {imported} медиафайлов из манифеста.")
+            source = "архива" if file_name.endswith(".zip") else "манифеста"
+            await message.answer(f"Импортировано {imported} медиафайлов из {source}.")
         finally:
             delete_local_file(str(destination))
 
@@ -639,7 +658,7 @@ def _build_start_text(*, is_admin: bool) -> str:
             "3. После подтверждения запись появится в inline-каталоге.\n\n"
             "<b>Команды</b>\n"
             "<code>/admin_media</code> - каталог и редактирование\n"
-            "<code>/admin_export</code> - экспорт JSON\n"
+            "<code>/admin_export</code> - экспорт JSON и ZIP с медиа\n"
             "<code>/admin_reimport</code> - переимпорт текущих записей\n"
             "<code>/admin_cleanup_orphans</code> - поиск лишних файлов\n"
             "<code>/cancel</code> - отменить текущий черновик"

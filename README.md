@@ -8,6 +8,7 @@ Telegram inline bot on `aiogram 3` with cached media delivery via Telegram `file
 - Empty inline query returns helper hints plus popular media.
 - SQLite catalog with tags, analytics, and usage counters.
 - CLI import from JSON manifest.
+- Admin export/import can move both JSON metadata and local media files via ZIP archives.
 - Admin-only private-message ingestion without bot restart.
 - Text snippets can be stored as separate catalog items and sent via inline mode.
 - User submissions are forwarded to one admin in a private chat.
@@ -134,6 +135,23 @@ Then a regular user can send `audio`, `photo`, `video`, `voice`, GIF/animation, 
 5. Publish the item into the inline catalog only after the admin accepts it.
 
 If the admin chooses `Edit title`, the next text message from that admin becomes the final title and the submission is approved immediately.
+
+## Admin Backup Export / Import
+
+Admin command:
+
+```text
+/admin_export
+```
+
+The bot sends:
+
+- `manifest.json` with catalog metadata.
+- One or more `multimedia-export-NNN.zip` archives with `manifest.json` plus media files under `media/`.
+
+`EXPORT_PART_SIZE_MB` controls the target maximum ZIP size. The default is `1900`, which stays below Telegram's common 2 GB document limit. If a single media file is larger than the configured limit, it is skipped from ZIP archives and counted in the export message.
+
+To restore into another bot, send the exported `.zip` files to that bot's admin private chat. Plain `.json` manifest import is still supported for the older workflow.
 
 ## Docker
 

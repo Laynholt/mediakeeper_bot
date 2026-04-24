@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     inline_cache_time: int = Field(default=30, alias="INLINE_CACHE_TIME")
     search_limit: int = Field(default=20, alias="SEARCH_LIMIT")
+    export_part_size_mb: int = Field(default=1900, alias="EXPORT_PART_SIZE_MB")
     media_root: Path = Field(default=Path("stuff/media"), alias="MEDIA_ROOT")
     admin_user_ids_raw: str = Field(default="", alias="ADMIN_USER_IDS")
 

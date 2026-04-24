@@ -69,6 +69,7 @@ async def main() -> None:
             ingestion_service=ingestion_service,
             media_root=settings.media_root,
             admin_user_id=admin_user_id,
+            export_part_size_bytes=settings.export_part_size_mb * 1024 * 1024,
         )
         orphan_cleanup_service = OrphanCleanupService(
             media_repository=media_repository,
@@ -134,7 +135,7 @@ async def _configure_bot_commands(bot: Bot, admin_user_id: int | None) -> None:
         BotCommand(command="start", description="Показать справку и примеры"),
         BotCommand(command="cancel", description="Отменить текущий черновик администратора"),
         BotCommand(command="admin_media", description="Открыть каталог медиа для админа"),
-        BotCommand(command="admin_export", description="Экспортировать каталог в JSON"),
+        BotCommand(command="admin_export", description="Экспортировать каталог и медиа"),
         BotCommand(command="admin_reimport", description="Переимпортировать текущий каталог"),
         BotCommand(command="admin_cleanup_orphans", description="Найти или удалить лишние файлы"),
     ]

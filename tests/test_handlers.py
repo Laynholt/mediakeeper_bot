@@ -30,3 +30,12 @@ def test_admin_import_document_path_sanitizes_telegram_file_name(tmp_path: Path)
     assert destination.name.endswith(".json")
     assert "manifest" in destination.name
     assert destination != import_dir / "manifest.json"
+
+
+def test_admin_import_document_path_keeps_zip_suffix(tmp_path: Path) -> None:
+    import_dir = tmp_path / "imports"
+
+    destination = _build_import_document_path("backup.zip", import_dir=import_dir)
+
+    assert destination.parent == import_dir
+    assert destination.name.endswith(".zip")

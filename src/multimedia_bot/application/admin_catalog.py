@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 from pathlib import Path
 import shutil
 from tempfile import NamedTemporaryFile
+from tempfile import TemporaryDirectory
 from typing import Literal
+from zipfile import ZIP_STORED, ZipFile
 
 from aiogram import Bot
 from aiogram.types import Message
@@ -24,6 +27,23 @@ from multimedia_bot.infrastructure.file_metadata import infer_file_metadata
 
 
 EditableField = Literal["title", "description", "caption", "content", "tags"]
+DEFAULT_EXPORT_ARCHIVE_SIZE_BYTES = 1900 * 1024 * 1024
+
+
+@dataclass(slots=True)
+class BackupArchiveEntry:
+    manifest_item: dict
+    source_path: Path
+    archive_path: str
+    size: int
+
+
+@dataclass(slots=True)
+class CatalogBackupPackage:
+    manifest_path: Path
+    archive_paths: list[Path]
+    item_count: int
+    skipped_files: list[Path]
 
 
 class AdminCatalogService:
@@ -35,12 +55,14 @@ class AdminCatalogService:
         ingestion_service: IngestionService,
         media_root: Path,
         admin_user_id: int | None,
+        export_part_size_bytes: int = DEFAULT_EXPORT_ARCHIVE_SIZE_BYTES,
     ) -> None:
         self._bot = bot
         self._media_repository = media_repository
         self._ingestion_service = ingestion_service
         self._media_root = media_root.resolve()
         self._admin_user_id = admin_user_id
+        self._export_part_size_bytes = export_part_size_bytes
 
     def is_admin(self, user_id: int) -> bool:
         return self._admin_user_id is not None and user_id == self._admin_user_id
@@ -175,6 +197,70 @@ class AdminCatalogService:
             path = Path(temporary_file.name)
         return path, len(export_items)
 
+    async def export_backup(self, *, max_archive_size_bytes: int | None = None) -> CatalogBackupPackage:
+        archive_size_limit = max_archive_size_bytes or self._export_part_size_bytes
+        if archive_size_limit <= 0:
+            raise ValueError("Лимит размера архива должен быть больше нуля.")
+
+        items = await self._media_repository.get_all_media()
+        manifest_items: list[dict] = []
+        archive_text_items: list[dict] = []
+        archive_entries: list[BackupArchiveEntry] = []
+        skipped_files: list[Path] = []
+
+        for item in items:
+            if item.media_type is MediaType.TEXT:
+                manifest_item = build_manifest_item_from_media(item, self._media_root)
+                manifest_items.append(manifest_item)
+                archive_text_items.append(dict(manifest_item))
+                continue
+
+            try:
+                absolute_path = self._resolve_local_path(item)
+            except FileNotFoundError:
+                continue
+            if not absolute_path.exists():
+                continue
+
+            manifest_item = build_manifest_item_from_media(item, self._media_root)
+            manifest_items.append(manifest_item)
+            file_size = absolute_path.stat().st_size
+            if file_size > archive_size_limit:
+                skipped_files.append(absolute_path)
+                continue
+
+            archive_item = dict(manifest_item)
+            archive_path = _archive_media_path(manifest_item["path"])
+            archive_item["path"] = archive_path
+            archive_entries.append(
+                BackupArchiveEntry(
+                    manifest_item=archive_item,
+                    source_path=absolute_path,
+                    archive_path=archive_path,
+                    size=file_size,
+                )
+            )
+
+        manifest_path = _write_json_temp({"items": manifest_items}, suffix=".json")
+        archive_groups = _split_archive_entries(archive_entries, max_size_bytes=archive_size_limit)
+        if not archive_groups and archive_text_items:
+            archive_groups = [[]]
+
+        archive_paths = [
+            _write_backup_archive(
+                part_index=index,
+                entries=group,
+                text_items=archive_text_items if index == 1 else [],
+            )
+            for index, group in enumerate(archive_groups, start=1)
+        ]
+        return CatalogBackupPackage(
+            manifest_path=manifest_path,
+            archive_paths=archive_paths,
+            item_count=len(manifest_items),
+            skipped_files=skipped_files,
+        )
+
     async def import_manifest(self, manifest_path: Path, *, allow_external_paths: bool = False) -> int:
         manifest = load_manifest(manifest_path)
         items = manifest.get("items")
@@ -214,6 +300,15 @@ class AdminCatalogService:
                 if copied_path is not None:
                     delete_local_file(str(copied_path))
         return imported
+
+    async def import_backup_archive(self, archive_path: Path) -> int:
+        with TemporaryDirectory() as temporary_directory:
+            extract_root = Path(temporary_directory)
+            _safe_extract_zip(archive_path=archive_path, destination=extract_root)
+            manifest_path = extract_root / "manifest.json"
+            if not manifest_path.exists():
+                raise ValueError("ZIP-архив должен содержать manifest.json в корне.")
+            return await self.import_manifest(manifest_path)
 
     async def reimport_current_catalog(self) -> int:
         items = await self._media_repository.get_all_media()
@@ -311,6 +406,7 @@ class AdminCatalogService:
             return
         raise ValueError("Манифест содержит путь к файлу вне каталога импорта или MEDIA_ROOT.")
 
+
 def build_metadata_from_media(*, item: MediaItem, media_root: Path) -> IngestionMetadata:
     absolute_path = (
         Path(item.storage_path)
@@ -356,3 +452,75 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _archive_media_path(manifest_path: str) -> str:
+    normalized = manifest_path.replace("\\", "/").lstrip("/")
+    return f"media/{normalized}"
+
+
+def _split_archive_entries(
+    entries: list[BackupArchiveEntry],
+    *,
+    max_size_bytes: int,
+) -> list[list[BackupArchiveEntry]]:
+    groups: list[list[BackupArchiveEntry]] = []
+    current_group: list[BackupArchiveEntry] = []
+    current_size = 0
+    for entry in entries:
+        if current_group and current_size + entry.size > max_size_bytes:
+            groups.append(current_group)
+            current_group = []
+            current_size = 0
+        current_group.append(entry)
+        current_size += entry.size
+    if current_group:
+        groups.append(current_group)
+    return groups
+
+
+def _write_json_temp(payload: dict, *, suffix: str) -> Path:
+    with NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=suffix) as temporary_file:
+        json.dump(payload, temporary_file, ensure_ascii=False, indent=2)
+        return Path(temporary_file.name)
+
+
+def _write_backup_archive(
+    *,
+    part_index: int,
+    entries: list[BackupArchiveEntry],
+    text_items: list[dict],
+) -> Path:
+    path = _empty_temp_path(suffix=f"-part-{part_index:03}.zip")
+    manifest_items = [*text_items, *(entry.manifest_item for entry in entries)]
+    with ZipFile(path, "w", compression=ZIP_STORED) as archive:
+        archive.writestr(
+            "manifest.json",
+            json.dumps({"items": manifest_items}, ensure_ascii=False, indent=2),
+        )
+        for entry in entries:
+            archive.write(entry.source_path, arcname=entry.archive_path)
+    return path
+
+
+def _empty_temp_path(*, suffix: str) -> Path:
+    with NamedTemporaryFile(delete=False, suffix=suffix) as temporary_file:
+        return Path(temporary_file.name)
+
+
+def _safe_extract_zip(*, archive_path: Path, destination: Path) -> None:
+    destination = destination.resolve()
+    with ZipFile(archive_path) as archive:
+        for member in archive.infolist():
+            target_path = (destination / member.filename).resolve()
+            if not _is_relative_to(target_path, destination):
+                raise ValueError(f"ZIP-архив содержит небезопасный путь: {member.filename}")
+
+        for member in archive.infolist():
+            target_path = (destination / member.filename).resolve()
+            if member.is_dir():
+                target_path.mkdir(parents=True, exist_ok=True)
+                continue
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(member) as source, target_path.open("wb") as target:
+                shutil.copyfileobj(source, target)
